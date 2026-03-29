@@ -1,0 +1,302 @@
+<div id="project-shell">
+  <p class="muted">{{ project.description or "No description." }}</p>
+  <p>Your access: <code>{{ role }}</code> · Project access: <code>{{ project.public_access }}</code></p>
+
+  <article>
+    <h3>Convergence by aspect</h3>
+    {% if aspects %}
+    <table>
+      <thead>
+        <tr>
+          <th>Aspect</th>
+          <th>Convergence</th>
+          <th>Avg uncertainty</th>
+          <th>Adj. ambiguity</th>
+          <th>Volatility</th>
+          <th>Coverage</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for aspect in aspects %}
+        {% set aspect_state = state.aspect_states.get(aspect.id, {}) %}
+        {% set conv = aspect_state.get("convergence", {}) %}
+        <tr>
+          <td>{{ aspect.name }}</td>
+          <td class="score">{{ "%.1f"|format((conv.get("score", 0.0) * 100)) }}%</td>
+          <td class="score">{{ "%.3f"|format(conv.get("avg_uncertainty", 1.0)) }}</td>
+          <td class="score">{{ "%.3f"|format(conv.get("adjacent_ambiguity", 1.0)) }}</td>
+          <td class="score">{{ "%.3f"|format(conv.get("volatility_proxy", 1.0)) }}</td>
+          <td>{{ "Yes" if conv.get("connected") and conv.get("min_comparisons_per_item", 0) >= 3 else "No" }}</td>
+          <td><code>{{ "stable" if conv.get("pass") else aspect_state.get("status", "in_progress") }}</code></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <p class="muted">Project stable across aspects: <code>{{ "yes" if state.convergence.get("all_aspects_stable") else "no" }}</code>{% if state.convergence.get("source") == "bt_proxy" %} (BT-derived proxy for current score mode){% endif %}</p>
+    {% else %}
+    <p class="muted">No aspects yet.</p>
+    {% endif %}
+  </article>
+
+  <article>
+    <h3>Pairwise comparison (all aspects)</h3>
+    <div
+      id="pair-card"
+      hx-get="{{ url_for('routes.next_pair', project_id=project.id, view=view_mode, history=history_mode, sort_by=sort_by, graph_aspect_id=graph_aspect_id, simulation=simulation_mode) }}"
+      hx-trigger="load, ranking-updated from:body"
+      hx-swap="innerHTML show:none"
+    ></div>
+  </article>
+
+  <article>
+    <h3>Items + ranking</h3>
+    <form
+      method="get"
+      action="{{ url_for('routes.project_dashboard', project_id=project.id) }}"
+      class="toolbar"
+      hx-get="{{ url_for('routes.project_dashboard', project_id=project.id) }}"
+      hx-target="#project-shell"
+      hx-swap="outerHTML show:none"
+      hx-push-url="false"
+    >
+      <input type="hidden" name="history" value="{{ history_mode }}">
+      <input type="hidden" name="sort_by" value="{{ sort_by }}">
+      <input type="hidden" name="graph_aspect_id" value="{{ graph_aspect_id }}">
+      <label>Data
+        <select name="simulation" {% if view_mode == "details" %}disabled{% endif %}>
+          <option value="observed" {% if simulation_mode != "simulated" %}selected{% endif %}>Observed only</option>
+          <option value="simulated" {% if simulation_mode == "simulated" %}selected{% endif %}>Simulate remaining pairs</option>
+        </select>
+      </label>
+      {% if view_mode == "details" %}
+        <input type="hidden" name="simulation" value="observed">
+      {% endif %}
+      <label>Display
+        <select name="view">
+          <option value="details" {% if view_mode == "details" %}selected{% endif %}>Display description</option>
+          <option value="bt_scores" {% if view_mode == "bt_scores" %}selected{% endif %}>Display BT score</option>
+          <option value="graph_scores" {% if view_mode == "graph_scores" %}selected{% endif %}>Display graph score</option>
+          <option value="elo_scores" {% if view_mode == "elo_scores" %}selected{% endif %}>Display ELO score</option>
+          <option value="wdl_scores" {% if view_mode == "wdl_scores" %}selected{% endif %}>Display W-D-L</option>
+        </select>
+      </label>
+      <button type="submit">Apply</button>
+    </form>
+    <div
+      id="ranking-fragment"
+      hx-get="{{ url_for('routes.ranking_fragment', project_id=project.id, view=view_mode, history=history_mode, sort_by=sort_by, graph_aspect_id=graph_aspect_id, simulation=simulation_mode) }}"
+      hx-trigger="load, ranking-updated from:body"
+      hx-swap="innerHTML show:none"
+    ></div>
+    {% if can_edit %}
+      <form
+        method="post"
+        action="{{ url_for('routes.create_item', project_id=project.id, view=view_mode, history=history_mode, sort_by=sort_by, graph_aspect_id=graph_aspect_id, simulation=simulation_mode) }}"
+        hx-post="{{ url_for('routes.create_item', project_id=project.id, view=view_mode, history=history_mode, sort_by=sort_by, graph_aspect_id=graph_aspect_id, simulation=simulation_mode) }}"
+        hx-target="#project-shell"
+        hx-swap="outerHTML show:none"
+        hx-push-url="false"
+      >
+        <label>Name <input name="name" required></label>
+        <label>Description <input name="description"></label>
+        <button type="submit">Add item</button>
+      </form>
+    {% endif %}
+  </article>
+
+  <div class="grid-2">
+    <article>
+      <h3>Comparison progress</h3>
+      {% set overall = pair_progress.get("overall", {}) %}
+      <p>
+        Exhaustive progress: <strong>{{ overall.get("compared_pair_slots", 0) }}</strong> /
+        <strong>{{ overall.get("total_pair_slots", 0) }}</strong>
+        ({{ "%.1f"|format((overall.get("progress", 0.0) * 100)) }}%)
+      </p>
+      {% if aspects %}
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Aspect</th><th>Pairs compared</th><th>Completion</th></tr>
+          </thead>
+          <tbody>
+          {% for aspect in aspects %}
+            {% set progress = pair_progress.get("per_aspect", {}).get(aspect.id, {}) %}
+            <tr>
+              <td>{{ aspect.name }}</td>
+              <td>{{ progress.get("compared_pairs", 0) }} / {{ progress.get("total_pairs", 0) }}</td>
+              <td>{{ "%.1f"|format((progress.get("progress", 0.0) * 100)) }}%</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% endif %}
+    </article>
+    <article>
+      <h3>Exports</h3>
+      <div class="toolbar">
+        <a role="button" href="{{ url_for('routes.export_project', project_id=project.id, mode='items_only') }}">Export items list</a>
+        <a role="button" href="{{ url_for('routes.export_project', project_id=project.id, mode='full_project') }}">Export full project</a>
+      </div>
+    </article>
+  </div>
+
+  <article>
+    <h3>Aspect graph</h3>
+    <form
+      method="get"
+      action="{{ url_for('routes.project_dashboard', project_id=project.id) }}"
+      class="toolbar"
+      hx-get="{{ url_for('routes.project_dashboard', project_id=project.id) }}"
+      hx-target="#project-shell"
+      hx-swap="outerHTML show:none"
+      hx-push-url="false"
+    >
+      <input type="hidden" name="view" value="{{ view_mode }}">
+      <input type="hidden" name="history" value="{{ history_mode }}">
+      <input type="hidden" name="sort_by" value="{{ sort_by }}">
+      <input type="hidden" name="simulation" value="{{ simulation_mode }}">
+      <label>Aspect
+        <select name="graph_aspect_id">
+          {% for aspect in aspects %}
+            <option value="{{ aspect.id }}" {% if graph_aspect_id == aspect.id %}selected{% endif %}>{{ aspect.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit">Apply</button>
+    </form>
+    <div
+      id="aspect-graph-fragment"
+      hx-get="{{ url_for('routes.aspect_graph_fragment', project_id=project.id, graph_aspect_id=graph_aspect_id, simulation=simulation_mode, view=view_mode) }}"
+      hx-trigger="load, ranking-updated from:body"
+      hx-swap="innerHTML show:none"
+    ></div>
+  </article>
+
+  {% if history_mode == "show" %}
+  <article>
+    <h3>Comparison history</h3>
+    <div
+      id="history-fragment"
+      hx-get="{{ url_for('routes.history_fragment', project_id=project.id) }}"
+      hx-trigger="load, ranking-updated from:body"
+      hx-swap="innerHTML show:none"
+    ></div>
+  </article>
+  {% endif %}
+
+  {% if can_edit %}
+  <div class="grid-2">
+    <article>
+      <h3>Access management</h3>
+      <form
+        method="post"
+        action="{{ url_for('routes.set_public_access', project_id=project.id, view=view_mode, history=history_mode, sort_by=sort_by, graph_aspect_id=graph_aspect_id, simulation=simulation_mode) }}"
+        hx-post="{{ url_for('routes.set_public_access', project_id=project.id, view=view_mode, history=history_mode, sort_by=sort_by, graph_aspect_id=graph_aspect_id, simulation=simulation_mode) }}"
+        hx-target="#project-shell"
+        hx-swap="outerHTML show:none"
+        hx-push-url="false"
+      >
+        <label>Public access
+          <select name="public_access">
+            <option value="private" {% if project.public_access == "private" %}selected{% endif %}>Private</option>
+            <option value="public_view" {% if project.public_access == "public_view" %}selected{% endif %}>Public view</option>
+            <option value="public_edit" {% if project.public_access == "public_edit" %}selected{% endif %}>Public edit</option>
+          </select>
+        </label>
+        <button type="submit">Save public access</button>
+      </form>
+      <form
+        method="post"
+        action="{{ url_for('routes.update_project_access', project_id=project.id, view=view_mode, history=history_mode, sort_by=sort_by, graph_aspect_id=graph_aspect_id, simulation=simulation_mode) }}"
+        hx-post="{{ url_for('routes.update_project_access', project_id=project.id, view=view_mode, history=history_mode, sort_by=sort_by, graph_aspect_id=graph_aspect_id, simulation=simulation_mode) }}"
+        hx-target="#project-shell"
+        hx-swap="outerHTML show:none"
+        hx-push-url="false"
+      >
+        <label>Username <input name="username" required></label>
+        <label>Role
+          <select name="role">
+            <option value="viewer">Viewer</option>
+            <option value="editor">Editor</option>
+          </select>
+        </label>
+        <button type="submit" name="action" value="set">Add/update access</button>
+        <button type="submit" name="action" value="remove" class="secondary">Remove access</button>
+      </form>
+      <div
+        hx-get="{{ url_for('routes.access_fragment', project_id=project.id) }}"
+        hx-trigger="load, ranking-updated from:body"
+        hx-swap="innerHTML show:none"
+      ></div>
+    </article>
+
+    <article>
+      <h3>Aspect management</h3>
+      <form
+        method="post"
+        action="{{ url_for('routes.create_aspect', project_id=project.id, view=view_mode, history=history_mode, sort_by=sort_by, graph_aspect_id=graph_aspect_id, simulation=simulation_mode) }}"
+        hx-post="{{ url_for('routes.create_aspect', project_id=project.id, view=view_mode, history=history_mode, sort_by=sort_by, graph_aspect_id=graph_aspect_id, simulation=simulation_mode) }}"
+        hx-target="#project-shell"
+        hx-swap="outerHTML show:none"
+        hx-push-url="false"
+      >
+        <label>New aspect name <input name="name" required></label>
+        <button type="submit">Add aspect</button>
+      </form>
+      {% for aspect in aspects %}
+        <details>
+          <summary>{{ aspect.name }} (#{{ aspect.order_index }})</summary>
+          <form
+            method="post"
+            action="{{ url_for('routes.rename_aspect', project_id=project.id, aspect_id=aspect.id, view=view_mode, history=history_mode, sort_by=sort_by, graph_aspect_id=graph_aspect_id, simulation=simulation_mode) }}"
+            hx-post="{{ url_for('routes.rename_aspect', project_id=project.id, aspect_id=aspect.id, view=view_mode, history=history_mode, sort_by=sort_by, graph_aspect_id=graph_aspect_id, simulation=simulation_mode) }}"
+            hx-target="#project-shell"
+            hx-swap="outerHTML show:none"
+            hx-push-url="false"
+          >
+            <label>Name <input name="name" value="{{ aspect.name }}" required></label>
+            <button type="submit">Rename</button>
+          </form>
+          <div class="toolbar">
+            <form
+              method="post"
+              action="{{ url_for('routes.move_aspect', project_id=project.id, aspect_id=aspect.id, view=view_mode, history=history_mode, sort_by=sort_by, graph_aspect_id=graph_aspect_id, simulation=simulation_mode) }}"
+              hx-post="{{ url_for('routes.move_aspect', project_id=project.id, aspect_id=aspect.id, view=view_mode, history=history_mode, sort_by=sort_by, graph_aspect_id=graph_aspect_id, simulation=simulation_mode) }}"
+              hx-target="#project-shell"
+              hx-swap="outerHTML show:none"
+              hx-push-url="false"
+            >
+              <input type="hidden" name="direction" value="up">
+              <button type="submit" class="secondary">Move up</button>
+            </form>
+            <form
+              method="post"
+              action="{{ url_for('routes.move_aspect', project_id=project.id, aspect_id=aspect.id, view=view_mode, history=history_mode, sort_by=sort_by, graph_aspect_id=graph_aspect_id, simulation=simulation_mode) }}"
+              hx-post="{{ url_for('routes.move_aspect', project_id=project.id, aspect_id=aspect.id, view=view_mode, history=history_mode, sort_by=sort_by, graph_aspect_id=graph_aspect_id, simulation=simulation_mode) }}"
+              hx-target="#project-shell"
+              hx-swap="outerHTML show:none"
+              hx-push-url="false"
+            >
+              <input type="hidden" name="direction" value="down">
+              <button type="submit" class="secondary">Move down</button>
+            </form>
+            <form
+              method="post"
+              action="{{ url_for('routes.delete_aspect', project_id=project.id, aspect_id=aspect.id, view=view_mode, history=history_mode, sort_by=sort_by, graph_aspect_id=graph_aspect_id, simulation=simulation_mode) }}"
+              hx-post="{{ url_for('routes.delete_aspect', project_id=project.id, aspect_id=aspect.id, view=view_mode, history=history_mode, sort_by=sort_by, graph_aspect_id=graph_aspect_id, simulation=simulation_mode) }}"
+              hx-target="#project-shell"
+              hx-swap="outerHTML show:none"
+              hx-push-url="false"
+            >
+              <button type="submit" class="secondary">Delete</button>
+            </form>
+          </div>
+        </details>
+      {% endfor %}
+    </article>
+  </div>
+  {% endif %}
+</div>

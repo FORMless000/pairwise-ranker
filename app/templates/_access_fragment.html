@@ -1,0 +1,12 @@
+{% if entries %}
+<table>
+  <thead><tr><th>Username</th><th>Role</th></tr></thead>
+  <tbody>
+  {% for entry in entries %}
+    <tr><td>{{ entry.user.username }}</td><td><code>{{ entry.role }}</code></td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">No explicit user access entries yet.</p>
+{% endif %}

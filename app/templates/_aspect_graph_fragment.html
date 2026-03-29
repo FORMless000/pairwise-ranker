@@ -1,0 +1,129 @@
+{% if aspect %}
+<p class="muted">Aspect: <strong>{{ aspect.name }}</strong> · Directed preference chain view (cycles highlighted)</p>
+<svg id="aspect-graph-canvas" viewBox="0 0 900 420" width="100%" height="420" style="border:1px solid #ddd;border-radius:.5rem;background:#fafafa;"></svg>
+<script>
+  (function () {
+    if (!window.d3 || !window.dagre) {
+      return;
+    }
+    const graph = {{ graph_data|tojson }};
+    const svg = d3.select("#aspect-graph-canvas");
+    svg.selectAll("*").remove();
+
+    const width = 900;
+    const height = 420;
+    const g = svg.append("g");
+    svg.call(d3.zoom().scaleExtent([0.4, 5]).on("zoom", (event) => g.attr("transform", event.transform)));
+
+    const defs = svg.append("defs");
+    defs.append("marker")
+      .attr("id", "arrowhead")
+      .attr("viewBox", "0 -5 10 10")
+      .attr("refX", 13)
+      .attr("refY", 0)
+      .attr("markerWidth", 6)
+      .attr("markerHeight", 6)
+      .attr("orient", "auto")
+      .append("path")
+      .attr("d", "M0,-5L10,0L0,5")
+      .attr("fill", "#334155");
+    defs.append("marker")
+      .attr("id", "arrowhead-cycle")
+      .attr("viewBox", "0 -5 10 10")
+      .attr("refX", 13)
+      .attr("refY", 0)
+      .attr("markerWidth", 6)
+      .attr("markerHeight", 6)
+      .attr("orient", "auto")
+      .append("path")
+      .attr("d", "M0,-5L10,0L0,5")
+      .attr("fill", "#ad1457");
+
+    const nodes = graph.nodes.map((row) => ({ ...row }));
+    const links = graph.edges.map((row) => ({ ...row }));
+    if (!nodes.length) {
+      g.append("text").attr("x", width / 2).attr("y", height / 2).attr("text-anchor", "middle").text("No graph data yet.");
+      return;
+    }
+
+    const scoreExtent = d3.extent(nodes, (row) => row.score);
+    const radius = d3.scaleLinear().domain(scoreExtent[0] === scoreExtent[1] ? [scoreExtent[0] - 1, scoreExtent[1] + 1] : scoreExtent).range([8, 14]);
+    const color = d3.scaleLinear().domain(scoreExtent[0] === scoreExtent[1] ? [scoreExtent[0] - 1, scoreExtent[1] + 1] : scoreExtent).range(["#8ecae6", "#1565c0"]);
+    const weightExtent = d3.extent(links, (row) => row.weight);
+    const strokeWidth = d3.scaleLinear().domain(weightExtent[0] === weightExtent[1] ? [0, Math.max(weightExtent[1] || 1, 1)] : weightExtent).range([1.0, 2.2]);
+    const cycleCount = links.filter((row) => !!row.in_cycle).length;
+    if (cycleCount > 0) {
+      g.append("text")
+        .attr("x", 14)
+        .attr("y", 18)
+        .attr("fill", "#ad1457")
+        .attr("font-size", "12px")
+        .text(`Cycle edges: ${cycleCount}`);
+    }
+
+    const dag = new dagre.graphlib.Graph({ multigraph: true });
+    dag.setGraph({ rankdir: "RL", ranksep: 56, nodesep: 24, marginx: 24, marginy: 24, ranker: "network-simplex" });
+    dag.setDefaultEdgeLabel(() => ({}));
+    nodes.forEach((row) => {
+      dag.setNode(String(row.id), { width: radius(row.score) * 3.2, height: radius(row.score) * 3.2 });
+    });
+    links.forEach((row, idx) => {
+      dag.setEdge(String(row.source), String(row.target), { weight: 1 + row.weight, minlen: 1 }, `edge-${idx}`);
+    });
+    const ordered = [...nodes].sort((left, right) => right.score - left.score);
+    for (let i = 0; i < ordered.length - 1; i += 1) {
+      dag.setEdge(
+        String(ordered[i].id),
+        String(ordered[i + 1].id),
+        { weight: 0.2, minlen: 1 },
+        `order-${i}`
+      );
+    }
+    dagre.layout(dag);
+    nodes.forEach((row) => {
+      const placed = dag.node(String(row.id));
+      row.x = placed.x;
+      row.y = placed.y;
+    });
+    const nodeById = new Map(nodes.map((row) => [row.id, row]));
+
+    g.append("g")
+      .selectAll("line")
+      .data(links)
+      .join("line")
+      .attr("x1", (row) => nodeById.get(row.source)?.x ?? width / 2)
+      .attr("y1", (row) => nodeById.get(row.source)?.y ?? height / 2)
+      .attr("x2", (row) => nodeById.get(row.target)?.x ?? width / 2)
+      .attr("y2", (row) => nodeById.get(row.target)?.y ?? height / 2)
+      .attr("stroke", "#666")
+      .attr("stroke-opacity", (row) => row.in_cycle ? 0.98 : 0.92)
+      .attr("stroke-dasharray", (row) => row.in_cycle ? "4 2" : "none")
+      .attr("stroke", (row) => row.in_cycle ? "#ad1457" : "#334155")
+      .attr("stroke-width", (row) => strokeWidth(row.weight))
+      .attr("marker-end", (row) => row.in_cycle ? "url(#arrowhead-cycle)" : "url(#arrowhead)");
+
+    const nodeGroup = g.append("g")
+      .selectAll("g")
+      .data(nodes)
+      .join("g")
+      .attr("transform", (row) => `translate(${row.x},${row.y})`);
+
+    nodeGroup.append("circle")
+      .attr("r", (row) => radius(row.score))
+      .attr("fill", (row) => color(row.score))
+      .attr("stroke", (row) => row.in_cycle ? "#ad1457" : "#0b1f33")
+      .attr("stroke-width", (row) => row.in_cycle ? 2.2 : 1.2);
+
+    nodeGroup.append("text")
+      .attr("text-anchor", "middle")
+      .attr("dy", "0.3em")
+      .attr("font-size", "9px")
+      .attr("fill", "#fff")
+      .text((row) => row.label.length > 10 ? `${row.label.slice(0, 9)}…` : row.label);
+
+    nodeGroup.append("title").text((row) => `${row.label} (score: ${row.score.toFixed(3)})`);
+  })();
+</script>
+{% else %}
+<p class="muted">No aspect selected.</p>
+{% endif %}

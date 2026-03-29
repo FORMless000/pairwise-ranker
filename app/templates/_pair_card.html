@@ -1,0 +1,68 @@
+{% if pair_items %}
+  <p><strong>{{ pair_items[0].name }}</strong> vs <strong>{{ pair_items[1].name }}</strong></p>
+  <p class="muted">Status: <code>{{ status }}</code></p>
+  {% if can_edit %}
+  <form
+    method="post"
+    action="{{ url_for('routes.compare', project_id=project.id) }}"
+    hx-post="{{ url_for('routes.compare', project_id=project.id, view=request.args.get('view', 'bt_scores'), history=request.args.get('history', 'show'), sort_by=request.args.get('sort_by', 'avg'), graph_aspect_id=request.args.get('graph_aspect_id'), simulation=request.args.get('simulation', 'observed')) }}"
+    hx-target="#pair-card"
+    hx-swap="innerHTML"
+  >
+    <input type="hidden" name="item_a_id" value="{{ pair_items[0].id }}">
+    <input type="hidden" name="item_b_id" value="{{ pair_items[1].id }}">
+    {% for aspect in aspects %}
+      {% set is_suggested = suggested_outcomes.get(aspect.id, False) %}
+      <fieldset class="aspect-judge {% if is_suggested %}choice-pending{% endif %}" data-suggested="{{ '1' if is_suggested else '0' }}">
+        <legend style="margin-bottom:0;">{{ aspect.name }}</legend>
+        {% set selected = selected_outcomes.get(aspect.id, "comparable") %}
+        <div class="choice-grid">
+          <div>
+            <input type="radio" id="a{{ aspect.id }}-worse" name="outcome_{{ aspect.id }}" value="worse" {% if selected == "worse" %}checked{% endif %}>
+            <label for="a{{ aspect.id }}-worse" class="choice-box choice-worse">Worse</label>
+          </div>
+          <div>
+            <input type="radio" id="a{{ aspect.id }}-slightly_worse" name="outcome_{{ aspect.id }}" value="slightly_worse" {% if selected == "slightly_worse" %}checked{% endif %}>
+            <label for="a{{ aspect.id }}-slightly_worse" class="choice-box choice-sworse">Slightly worse</label>
+          </div>
+          <div>
+            <input type="radio" id="a{{ aspect.id }}-comparable" name="outcome_{{ aspect.id }}" value="comparable" {% if selected == "comparable" %}checked{% endif %}>
+            <label for="a{{ aspect.id }}-comparable" class="choice-box choice-comparable">Comparable</label>
+          </div>
+          <div>
+            <input type="radio" id="a{{ aspect.id }}-slightly_better" name="outcome_{{ aspect.id }}" value="slightly_better" {% if selected == "slightly_better" %}checked{% endif %}>
+            <label for="a{{ aspect.id }}-slightly_better" class="choice-box choice-sbetter">Slightly better</label>
+          </div>
+          <div>
+            <input type="radio" id="a{{ aspect.id }}-better" name="outcome_{{ aspect.id }}" value="better" {% if selected == "better" %}checked{% endif %}>
+            <label for="a{{ aspect.id }}-better" class="choice-box choice-better">Better</label>
+          </div>
+        </div>
+      </fieldset>
+    {% endfor %}
+    <button type="submit">Submit all aspect judgments</button>
+  </form>
+  <script>
+    (function () {
+      const form = document.currentScript && document.currentScript.previousElementSibling;
+      if (!form) return;
+      form.querySelectorAll(".aspect-judge[data-suggested='1']").forEach((fieldset) => {
+        fieldset.querySelectorAll("input[type='radio']").forEach((radio) => {
+          radio.addEventListener("click", () => {
+            fieldset.classList.remove("choice-pending");
+            fieldset.dataset.suggested = "0";
+          });
+          radio.addEventListener("change", () => {
+            fieldset.classList.remove("choice-pending");
+            fieldset.dataset.suggested = "0";
+          });
+        });
+      });
+    })();
+  </script>
+  {% else %}
+  <p class="muted">Viewer mode: comparison is disabled.</p>
+  {% endif %}
+{% else %}
+  <p class="muted">No pair available yet. Add more items or comparisons.</p>
+{% endif %}

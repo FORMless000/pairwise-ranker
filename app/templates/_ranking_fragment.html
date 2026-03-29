@@ -1,0 +1,130 @@
+<p>Status: <code>{{ status }}</code></p>
+{% if simulation_mode == "simulated" %}
+<p class="muted">Mode: <code>Simulated</code> · Synthetic comparisons added: <strong>{{ state.simulation.synthetic_total if state and state.simulation else 0 }}</strong></p>
+{% endif %}
+{% set use_legacy_tooltip = false %}
+{% if items %}
+<div class="table-wrap">
+{% if view_mode == "bt_scores" or view_mode == "graph_scores" or view_mode == "elo_scores" or view_mode == "wdl_scores" %}
+<table>
+  <thead>
+    <tr>
+      <th>Item</th>
+      <th>
+        <a
+          href="{{ url_for('routes.ranking_fragment', project_id=project.id, view=view_mode, history=history_mode, sort_by='avg', graph_aspect_id=graph_aspect_id, simulation=simulation_mode) }}"
+          hx-get="{{ url_for('routes.ranking_fragment', project_id=project.id, view=view_mode, history=history_mode, sort_by='avg', graph_aspect_id=graph_aspect_id, simulation=simulation_mode) }}"
+          hx-target="#ranking-fragment"
+          hx-swap="innerHTML show:none"
+        >
+          Avg score {% if sort_by == "avg" %}▼{% endif %}
+        </a>
+      </th>
+      {% for aspect in aspects %}
+      <th>
+        <a
+          href="{{ url_for('routes.ranking_fragment', project_id=project.id, view=view_mode, history=history_mode, sort_by='aspect:' ~ aspect.id, graph_aspect_id=graph_aspect_id, simulation=simulation_mode) }}"
+          hx-get="{{ url_for('routes.ranking_fragment', project_id=project.id, view=view_mode, history=history_mode, sort_by='aspect:' ~ aspect.id, graph_aspect_id=graph_aspect_id, simulation=simulation_mode) }}"
+          hx-target="#ranking-fragment"
+          hx-swap="innerHTML show:none"
+        >
+          {{ aspect.name }} {% if sort_by == ('aspect:' ~ aspect.id) %}▼{% endif %}
+        </a>
+      </th>
+      {% endfor %}
+    </tr>
+  </thead>
+  <tbody>
+  {% for row in score_rows %}
+    <tr>
+      <td>{{ row.item.name }}</td>
+      <td class="score hover-detail" {% if use_legacy_tooltip %}title="W-D-L + details in hover card"{% endif %}>
+        <span>{{ row.display_avg_score }}</span>
+        <article class="hover-card">
+          <header><strong>{{ row.item.name }}</strong> · Avg</header>
+          <p class="muted" style="margin:.25rem 0 .4rem 0;">{{ row.description or "No description." }}</p>
+          <p style="margin:.2rem 0;">Uncertainty: <code>{{ "%.3f"|format(row.avg_uncertainty) }}</code></p>
+          {% for aspect in aspects %}
+            {% set info = row.aspect_insights.get(aspect.id, {}) %}
+            {% set prog = row.avg_aspect_progress.get(aspect.id, {}) %}
+            <hr style="margin:.4rem 0;">
+            <p style="margin:.15rem 0;"><strong>{{ aspect.name }}</strong> · W-D-L: {{ info.get("wins", 0) }}-{{ info.get("draws", 0) }}-{{ info.get("losses", 0) }}</p>
+            <p style="margin:.15rem 0;">Progress: {{ prog.get("compared", 0) }}/{{ prog.get("total", 0) }} ({{ "%.1f"|format((prog.get("ratio", 0.0) * 100)) }}%)</p>
+            <p style="margin:.15rem 0;">Uncertainty: <code>{{ "%.3f"|format(info.get("uncertainty", 1.0)) }}</code></p>
+            {% if info.get("top_wins") %}<p style="margin:.15rem 0;">Top wins: {{ info.get("top_wins")|join(", ") }}</p>{% endif %}
+            {% if info.get("top_draws") %}<p style="margin:.15rem 0;">Top draws: {{ info.get("top_draws")|join(", ") }}</p>{% endif %}
+            {% if info.get("closest_losses") %}<p style="margin:.15rem 0;">Closest losses: {{ info.get("closest_losses")|join(", ") }}</p>{% endif %}
+          {% endfor %}
+        </article>
+      </td>
+      {% for aspect in aspects %}
+        {% set info = row.aspect_insights.get(aspect.id, {}) %}
+        <td class="score hover-detail" {% if use_legacy_tooltip %}title="{{ row.aspect_tooltips.get(aspect.id, '') }}"{% endif %}>
+          <span>{{ row.display_aspect_scores.get(aspect.id, "0.000") }}</span>
+          <article class="hover-card">
+            <header><strong>{{ row.item.name }}</strong> · {{ aspect.name }}</header>
+            <p class="muted" style="margin:.25rem 0 .4rem 0;">{{ row.description or "No description." }}</p>
+            <p style="margin:.15rem 0;">W-D-L: {{ info.get("wins", 0) }}-{{ info.get("draws", 0) }}-{{ info.get("losses", 0) }}</p>
+            <p style="margin:.15rem 0;">Uncertainty: <code>{{ "%.3f"|format(info.get("uncertainty", 1.0)) }}</code></p>
+            <p style="margin:.15rem 0;">Progress: {{ info.get("progress_compared", 0) }}/{{ info.get("progress_total", 0) }} ({{ "%.1f"|format((info.get("progress_ratio", 0.0) * 100)) }}%)</p>
+            {% if info.get("top_wins") %}<p style="margin:.15rem 0;">Top wins: {{ info.get("top_wins")|join(", ") }}</p>{% endif %}
+            {% if info.get("top_draws") %}<p style="margin:.15rem 0;">Top draws: {{ info.get("top_draws")|join(", ") }}</p>{% endif %}
+            {% if info.get("closest_losses") %}<p style="margin:.15rem 0;">Closest losses: {{ info.get("closest_losses")|join(", ") }}</p>{% endif %}
+          </article>
+        </td>
+      {% endfor %}
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<table>
+  <thead>
+    <tr>
+      <th>Item</th>
+      <th>Description</th>
+      {% if can_edit %}<th>Edit</th><th>Delete</th>{% endif %}
+    </tr>
+  </thead>
+  <tbody>
+  {% for item in items %}
+    <tr>
+      <td>{{ item.name }}</td>
+      <td>{{ item.description or "" }}</td>
+      {% if can_edit %}
+      <td>
+        <form
+          method="post"
+          action="{{ url_for('routes.update_item', project_id=project.id, item_id=item.id, view=view_mode, history=history_mode, sort_by=sort_by, graph_aspect_id=graph_aspect_id, simulation=simulation_mode) }}"
+          hx-post="{{ url_for('routes.update_item', project_id=project.id, item_id=item.id, view=view_mode, history=history_mode, sort_by=sort_by, graph_aspect_id=graph_aspect_id, simulation=simulation_mode) }}"
+          hx-target="#project-shell"
+          hx-swap="outerHTML show:none"
+          hx-push-url="false"
+        >
+          <input name="name" value="{{ item.name }}" required style="margin:0;">
+          <input name="description" value="{{ item.description or '' }}" style="margin:.2rem 0 0 0;">
+          <button type="submit" class="secondary">Save</button>
+        </form>
+      </td>
+      <td>
+        <form
+          method="post"
+          action="{{ url_for('routes.delete_item', project_id=project.id, item_id=item.id, view=view_mode, history=history_mode, sort_by=sort_by, graph_aspect_id=graph_aspect_id, simulation=simulation_mode) }}"
+          hx-post="{{ url_for('routes.delete_item', project_id=project.id, item_id=item.id, view=view_mode, history=history_mode, sort_by=sort_by, graph_aspect_id=graph_aspect_id, simulation=simulation_mode) }}"
+          hx-target="#project-shell"
+          hx-swap="outerHTML show:none"
+          hx-push-url="false"
+        >
+          <button type="submit" class="secondary">Delete</button>
+        </form>
+      </td>
+      {% endif %}
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+</div>
+{% else %}
+<p class="muted">No items yet.</p>
+{% endif %}

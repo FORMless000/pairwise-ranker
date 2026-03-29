@@ -1,0 +1,17 @@
+{% if comparisons %}
+<table>
+  <thead><tr><th>Aspect</th><th>Pair</th><th>Outcome</th><th>When</th></tr></thead>
+  <tbody>
+  {% for comp in comparisons %}
+    <tr>
+      <td>{{ comp.aspect.name if comp.aspect else "Overall" }}</td>
+      <td>{{ comp.item_a.name }} vs {{ comp.item_b.name }}</td>
+      <td><code>{{ comp.outcome }}</code></td>
+      <td>{{ comp.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">No comparisons yet.</p>
+{% endif %}
